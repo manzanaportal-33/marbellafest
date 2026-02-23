@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 type Birthday = {
+  id?: number;
   nombre: string;
   dia: string;
   nota?: string;
 };
 
 type Fiesta = {
+  id?: number;
   titulo: string;
   fecha: string;
   lugar: string;
@@ -50,6 +52,7 @@ const defaultFiestas: Fiesta[] = [
 export default function Home() {
   const fiestasSectionRef = useRef<HTMLDivElement | null>(null);
   const [fiestaElegida, setFiestaElegida] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const [cumpleanos, setCumpleanos] =
     useState<Birthday[]>(defaultCumpleanos);
@@ -102,6 +105,7 @@ export default function Home() {
           const cumplesData = (await cumplesRes.json()) as Birthday[];
           if (Array.isArray(cumplesData) && cumplesData.length > 0) {
             setCumpleanos(cumplesData);
+            setSyncError(null);
             try {
               window.localStorage.setItem(
                 "marbellafest-cumpleanos",
@@ -111,12 +115,18 @@ export default function Home() {
               // ignoramos errores de localStorage
             }
           }
+        } else {
+          const msg = await cumplesRes.text();
+          setSyncError(
+            `No pude leer/guardar en el backend (cumples). ${msg || ""}`.trim(),
+          );
         }
 
         if (fiestasRes.ok) {
           const fiestasData = (await fiestasRes.json()) as Fiesta[];
           if (Array.isArray(fiestasData) && fiestasData.length > 0) {
             setFiestas(fiestasData);
+            setSyncError(null);
             try {
               window.localStorage.setItem(
                 "marbellafest-fiestas",
@@ -126,9 +136,17 @@ export default function Home() {
               // ignoramos errores de localStorage
             }
           }
+        } else {
+          const msg = await fiestasRes.text();
+          setSyncError(
+            `No pude leer/guardar en el backend (fiestas). ${msg || ""}`.trim(),
+          );
         }
       } catch {
         // si falla el backend, nos quedamos con lo que haya (default o localStorage)
+        setSyncError(
+          "No pude conectar con el backend. Se guardará solo en este dispositivo.",
+        );
       }
     };
 
@@ -202,9 +220,17 @@ export default function Home() {
           copia[copia.length - 1] = nuevo;
           return copia;
         });
+        setSyncError(null);
+      } else {
+        const msg = await response.text();
+        setSyncError(
+          `No se pudo guardar en el backend. Se guardó local. ${msg || ""}`.trim(),
+        );
       }
     } catch {
-      // ignoramos errores por ahora
+      setSyncError(
+        "No se pudo guardar en el backend. Se guardó local en este dispositivo.",
+      );
     }
 
     setNuevoNombreCumple("");
@@ -226,9 +252,15 @@ export default function Home() {
 
       if (response.ok) {
         setCumpleanos((prev) => prev.filter((c) => (c as any).id !== id));
+        setSyncError(null);
+      } else {
+        const msg = await response.text();
+        setSyncError(
+          `No se pudo borrar en el backend. ${msg || ""}`.trim(),
+        );
       }
     } catch {
-      // ignoramos errores
+      setSyncError("No se pudo borrar en el backend (sin conexión).");
     }
   };
 
@@ -272,9 +304,17 @@ export default function Home() {
           copia[copia.length - 1] = nueva;
           return copia;
         });
+        setSyncError(null);
+      } else {
+        const msg = await response.text();
+        setSyncError(
+          `No se pudo guardar la fiesta en el backend. Se guardó local. ${msg || ""}`.trim(),
+        );
       }
     } catch {
-      // ignoramos errores
+      setSyncError(
+        "No se pudo guardar la fiesta en el backend. Se guardó local en este dispositivo.",
+      );
     }
 
     setNuevoTituloFiesta("");
@@ -302,9 +342,15 @@ export default function Home() {
       if (response.ok) {
         setFiestas((prev) => prev.filter((f) => (f as any).id !== id));
         setFiestaElegida((prev) => (prev === titulo ? null : prev));
+        setSyncError(null);
+      } else {
+        const msg = await response.text();
+        setSyncError(
+          `No se pudo borrar la fiesta en el backend. ${msg || ""}`.trim(),
+        );
       }
     } catch {
-      // ignoramos errores
+      setSyncError("No se pudo borrar la fiesta en el backend (sin conexión).");
     }
   };
 
@@ -339,6 +385,18 @@ export default function Home() {
             </span>
           </div>
         </header>
+
+        {syncError && (
+          <div className="rounded-2xl border border-amber-300/30 bg-amber-500/10 px-5 py-3 text-xs text-amber-100">
+            <p className="font-medium">Aviso de sincronización</p>
+            <p className="mt-1 text-amber-100/90">{syncError}</p>
+            <p className="mt-2 text-amber-100/80">
+              Tip: abre <span className="font-medium">/api/diagnostics</span> en
+              tu Vercel para ver si faltan variables de entorno o si no existen
+              las tablas.
+            </p>
+          </div>
+        )}
 
         <section className="grid gap-6 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
           {/* Cumpleaños */}
@@ -376,7 +434,7 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() =>
-                        handleEliminarCumple((c as any).id as number, index)
+                        handleEliminarCumple(c.id, index)
                       }
                       className="text-[0.65rem] text-slate-400 hover:text-red-300"
                     >
@@ -459,7 +517,7 @@ export default function Home() {
                       type="button"
                       onClick={() =>
                         handleEliminarFiesta(
-                          (f as any).id as number,
+                          f.id,
                           index,
                           f.titulo,
                         )
