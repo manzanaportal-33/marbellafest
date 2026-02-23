@@ -64,6 +64,33 @@ export default function Home() {
   const [nuevoMoodFiesta, setNuevoMoodFiesta] = useState("");
 
   useEffect(() => {
+    // 1) Intentar cargar desde localStorage (para que siempre tengas algo persistente en este dispositivo)
+    try {
+      const storedCumples = window.localStorage.getItem(
+        "marbellafest-cumpleanos",
+      );
+      const storedFiestas = window.localStorage.getItem(
+        "marbellafest-fiestas",
+      );
+
+      if (storedCumples) {
+        const parsedCumples = JSON.parse(storedCumples) as Birthday[];
+        if (Array.isArray(parsedCumples) && parsedCumples.length > 0) {
+          setCumpleanos(parsedCumples);
+        }
+      }
+
+      if (storedFiestas) {
+        const parsedFiestas = JSON.parse(storedFiestas) as Fiesta[];
+        if (Array.isArray(parsedFiestas) && parsedFiestas.length > 0) {
+          setFiestas(parsedFiestas);
+        }
+      }
+    } catch {
+      // si falla localStorage, seguimos con los valores por defecto
+    }
+
+    // 2) Intentar sincronizar con el backend (Supabase vía API)
     const fetchData = async () => {
       try {
         const [cumplesRes, fiestasRes] = await Promise.all([
@@ -75,6 +102,14 @@ export default function Home() {
           const cumplesData = (await cumplesRes.json()) as Birthday[];
           if (Array.isArray(cumplesData) && cumplesData.length > 0) {
             setCumpleanos(cumplesData);
+            try {
+              window.localStorage.setItem(
+                "marbellafest-cumpleanos",
+                JSON.stringify(cumplesData),
+              );
+            } catch {
+              // ignoramos errores de localStorage
+            }
           }
         }
 
@@ -82,15 +117,46 @@ export default function Home() {
           const fiestasData = (await fiestasRes.json()) as Fiesta[];
           if (Array.isArray(fiestasData) && fiestasData.length > 0) {
             setFiestas(fiestasData);
+            try {
+              window.localStorage.setItem(
+                "marbellafest-fiestas",
+                JSON.stringify(fiestasData),
+              );
+            } catch {
+              // ignoramos errores de localStorage
+            }
           }
         }
       } catch {
-        // si falla, nos quedamos con los valores por defecto
+        // si falla el backend, nos quedamos con lo que haya (default o localStorage)
       }
     };
 
     void fetchData();
   }, []);
+
+  // Guardar siempre que cambien, para que en este dispositivo persista
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        "marbellafest-cumpleanos",
+        JSON.stringify(cumpleanos),
+      );
+    } catch {
+      // ignoramos errores
+    }
+  }, [cumpleanos]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        "marbellafest-fiestas",
+        JSON.stringify(fiestas),
+      );
+    } catch {
+      // ignoramos errores
+    }
+  }, [fiestas]);
 
   const handleDecidirSiguienteFiesta = () => {
     const randomIndex = Math.floor(Math.random() * fiestas.length);
@@ -109,6 +175,13 @@ export default function Home() {
     event.preventDefault();
     if (!nuevoNombreCumple.trim() || !nuevaFechaCumple.trim()) return;
 
+    // Actualizamos primero en el estado/localStorage para que siempre veas el cambio
+    const nuevoLocal: Birthday = {
+      nombre: nuevoNombreCumple.trim(),
+      dia: nuevaFechaCumple.trim(),
+    };
+    setCumpleanos((prev) => [...prev, nuevoLocal]);
+
     try {
       const response = await fetch("/api/cumples", {
         method: "POST",
@@ -123,7 +196,12 @@ export default function Home() {
 
       if (response.ok) {
         const nuevo = (await response.json()) as Birthday;
-        setCumpleanos((prev) => [...prev, nuevo]);
+        // Si el backend devuelve un objeto (con id, etc), intentamos sustituir el último añadido
+        setCumpleanos((prev) => {
+          const copia = [...prev];
+          copia[copia.length - 1] = nuevo;
+          return copia;
+        });
       }
     } catch {
       // ignoramos errores por ahora
@@ -134,12 +212,12 @@ export default function Home() {
   };
 
   const handleEliminarCumple = async (id?: number, index?: number) => {
-    if (!id) {
-      setCumpleanos((prev) =>
-        typeof index === "number" ? prev.filter((_, i) => i !== index) : prev,
-      );
-      return;
-    }
+    // Quitamos siempre a nivel de UI/local primero
+    setCumpleanos((prev) =>
+      typeof index === "number" ? prev.filter((_, i) => i !== index) : prev,
+    );
+
+    if (!id) return;
 
     try {
       const response = await fetch(`/api/cumples?id=${id}`, {
@@ -164,6 +242,15 @@ export default function Home() {
       return;
     }
 
+    // Actualizamos primero en el estado/localStorage
+    const nuevaLocal: Fiesta = {
+      titulo: nuevoTituloFiesta.trim(),
+      fecha: nuevaFechaFiesta.trim(),
+      lugar: nuevoLugarFiesta.trim(),
+      mood: nuevoMoodFiesta.trim() || "Sin descripción aún",
+    };
+    setFiestas((prev) => [...prev, nuevaLocal]);
+
     try {
       const response = await fetch("/api/fiestas", {
         method: "POST",
@@ -180,7 +267,11 @@ export default function Home() {
 
       if (response.ok) {
         const nueva = (await response.json()) as Fiesta;
-        setFiestas((prev) => [...prev, nueva]);
+        setFiestas((prev) => {
+          const copia = [...prev];
+          copia[copia.length - 1] = nueva;
+          return copia;
+        });
       }
     } catch {
       // ignoramos errores
@@ -197,11 +288,11 @@ export default function Home() {
     index: number,
     titulo: string,
   ) => {
-    if (!id) {
-      setFiestas((prev) => prev.filter((_, i) => i !== index));
-      setFiestaElegida((prev) => (prev === titulo ? null : prev));
-      return;
-    }
+    // Quitamos siempre en UI/local
+    setFiestas((prev) => prev.filter((_, i) => i !== index));
+    setFiestaElegida((prev) => (prev === titulo ? null : prev));
+
+    if (!id) return;
 
     try {
       const response = await fetch(`/api/fiestas?id=${id}`, {
