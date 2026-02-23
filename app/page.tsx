@@ -64,53 +64,33 @@ export default function Home() {
   const [nuevoMoodFiesta, setNuevoMoodFiesta] = useState("");
 
   useEffect(() => {
-    try {
-      const storedCumples = window.localStorage.getItem(
-        "marbellafest-cumpleanos",
-      );
-      const storedFiestas = window.localStorage.getItem(
-        "marbellafest-fiestas",
-      );
+    const fetchData = async () => {
+      try {
+        const [cumplesRes, fiestasRes] = await Promise.all([
+          fetch("/api/cumples"),
+          fetch("/api/fiestas"),
+        ]);
 
-      if (storedCumples) {
-        const parsedCumples = JSON.parse(storedCumples) as Birthday[];
-        if (Array.isArray(parsedCumples)) {
-          setCumpleanos(parsedCumples);
+        if (cumplesRes.ok) {
+          const cumplesData = (await cumplesRes.json()) as Birthday[];
+          if (Array.isArray(cumplesData) && cumplesData.length > 0) {
+            setCumpleanos(cumplesData);
+          }
         }
-      }
 
-      if (storedFiestas) {
-        const parsedFiestas = JSON.parse(storedFiestas) as Fiesta[];
-        if (Array.isArray(parsedFiestas)) {
-          setFiestas(parsedFiestas);
+        if (fiestasRes.ok) {
+          const fiestasData = (await fiestasRes.json()) as Fiesta[];
+          if (Array.isArray(fiestasData) && fiestasData.length > 0) {
+            setFiestas(fiestasData);
+          }
         }
+      } catch {
+        // si falla, nos quedamos con los valores por defecto
       }
-    } catch {
-      // ignoramos errores de localStorage
-    }
+    };
+
+    void fetchData();
   }, []);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        "marbellafest-cumpleanos",
-        JSON.stringify(cumpleanos),
-      );
-    } catch {
-      // ignoramos errores de localStorage
-    }
-  }, [cumpleanos]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        "marbellafest-fiestas",
-        JSON.stringify(fiestas),
-      );
-    } catch {
-      // ignoramos errores de localStorage
-    }
-  }, [fiestas]);
 
   const handleDecidirSiguienteFiesta = () => {
     const randomIndex = Math.floor(Math.random() * fiestas.length);
@@ -125,27 +105,56 @@ export default function Home() {
     }
   };
 
-  const handleAgregarCumple = (event: React.FormEvent) => {
+  const handleAgregarCumple = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!nuevoNombreCumple.trim() || !nuevaFechaCumple.trim()) return;
 
-    setCumpleanos((prev) => [
-      ...prev,
-      {
-        nombre: nuevoNombreCumple.trim(),
-        dia: nuevaFechaCumple.trim(),
-      },
-    ]);
+    try {
+      const response = await fetch("/api/cumples", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          nombre: nuevoNombreCumple.trim(),
+          dia: nuevaFechaCumple.trim(),
+        }),
+      });
+
+      if (response.ok) {
+        const nuevo = (await response.json()) as Birthday;
+        setCumpleanos((prev) => [...prev, nuevo]);
+      }
+    } catch {
+      // ignoramos errores por ahora
+    }
 
     setNuevoNombreCumple("");
     setNuevaFechaCumple("");
   };
 
-  const handleEliminarCumple = (index: number) => {
-    setCumpleanos((prev) => prev.filter((_, i) => i !== index));
+  const handleEliminarCumple = async (id?: number, index?: number) => {
+    if (!id) {
+      setCumpleanos((prev) =>
+        typeof index === "number" ? prev.filter((_, i) => i !== index) : prev,
+      );
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/cumples?id=${id}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        setCumpleanos((prev) => prev.filter((c) => (c as any).id !== id));
+      }
+    } catch {
+      // ignoramos errores
+    }
   };
 
-  const handleAgregarFiesta = (event: React.FormEvent) => {
+  const handleAgregarFiesta = async (event: React.FormEvent) => {
     event.preventDefault();
     if (
       !nuevoTituloFiesta.trim() ||
@@ -155,14 +164,27 @@ export default function Home() {
       return;
     }
 
-    const nuevaFiesta: Fiesta = {
-      titulo: nuevoTituloFiesta.trim(),
-      fecha: nuevaFechaFiesta.trim(),
-      lugar: nuevoLugarFiesta.trim(),
-      mood: nuevoMoodFiesta.trim() || "Sin descripción aún",
-    };
+    try {
+      const response = await fetch("/api/fiestas", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          titulo: nuevoTituloFiesta.trim(),
+          fecha: nuevaFechaFiesta.trim(),
+          lugar: nuevoLugarFiesta.trim(),
+          mood: nuevoMoodFiesta.trim() || "Sin descripción aún",
+        }),
+      });
 
-    setFiestas((prev) => [...prev, nuevaFiesta]);
+      if (response.ok) {
+        const nueva = (await response.json()) as Fiesta;
+        setFiestas((prev) => [...prev, nueva]);
+      }
+    } catch {
+      // ignoramos errores
+    }
 
     setNuevoTituloFiesta("");
     setNuevaFechaFiesta("");
@@ -170,9 +192,29 @@ export default function Home() {
     setNuevoMoodFiesta("");
   };
 
-  const handleEliminarFiesta = (index: number, titulo: string) => {
-    setFiestas((prev) => prev.filter((_, i) => i !== index));
-    setFiestaElegida((prev) => (prev === titulo ? null : prev));
+  const handleEliminarFiesta = async (
+    id: number | undefined,
+    index: number,
+    titulo: string,
+  ) => {
+    if (!id) {
+      setFiestas((prev) => prev.filter((_, i) => i !== index));
+      setFiestaElegida((prev) => (prev === titulo ? null : prev));
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/fiestas?id=${id}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        setFiestas((prev) => prev.filter((f) => (f as any).id !== id));
+        setFiestaElegida((prev) => (prev === titulo ? null : prev));
+      }
+    } catch {
+      // ignoramos errores
+    }
   };
 
   return (
@@ -242,7 +284,9 @@ export default function Home() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleEliminarCumple(index)}
+                      onClick={() =>
+                        handleEliminarCumple((c as any).id as number, index)
+                      }
                       className="text-[0.65rem] text-slate-400 hover:text-red-300"
                     >
                       Quitar
@@ -322,7 +366,13 @@ export default function Home() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleEliminarFiesta(index, f.titulo)}
+                      onClick={() =>
+                        handleEliminarFiesta(
+                          (f as any).id as number,
+                          index,
+                          f.titulo,
+                        )
+                      }
                       className="text-[0.65rem] text-slate-400 hover:text-red-300"
                     >
                       Quitar
